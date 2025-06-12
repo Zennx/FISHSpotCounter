@@ -3,11 +3,10 @@ from skimage import exposure, filters, measure
 import cv2
 import os
 import joblib
-from sklearn.ensemble import RandomForestRegressor
 from core.spot_counter import detect_spots_log, save_spot_overlay
+from concurrent.futures import ThreadPoolExecutor
 
-model = None  # Placeholder for the model, should be loaded externally
-model = joblib.load("C:/Users/ONG32/trained_model_XGB_V3.1.pkl")
+parallelisation_enabled = False  # Set to True/False to enable/disable parallel feature extraction
 
 def extract_features(image):
     # Extract basic intensity features from an image
@@ -21,7 +20,7 @@ def extract_features(image):
     otsu_thresh = filters.threshold_otsu(image)
     return [mean, std, max_val, p75, nonzero_count, nonzero_ratio, entropy, otsu_thresh]
 
-def rescaled (image, features, k):
+def rescaled(image, features, k):
     return exposure.rescale_intensity(image, in_range=(features[0]*k, 225))
 
 def apply_otsu_threshold(image):
@@ -29,7 +28,7 @@ def apply_otsu_threshold(image):
     threshold_val = filters.threshold_otsu(image)
     return image > threshold_val
 
-def process_image(file_path, output_dir, save_overlay=True):
+def process_image(file_path, output_dir, model, save_overlay=True):
     filename = os.path.basename(file_path)
     img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
 
@@ -48,9 +47,7 @@ def process_image(file_path, output_dir, save_overlay=True):
     else:
         filtered = flattened
 
-    # This still applies some Gaussian smoothing but weaker
     filtered = cv2.GaussianBlur(flattened, (3, 3), sigmaX=0.65)
-
     blobs = detect_spots_log(filtered)
 
     if save_overlay:
@@ -64,28 +61,40 @@ def process_image(file_path, output_dir, save_overlay=True):
         "Entropy": entropy
     }
 
-def process_images_batch(file_paths, output_dir, save_overlay=True):
+def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=None, parallel_features=parallelisation_enabled):
     """
     Process a batch of images: extract features, predict k in batch, and process each image.
     Returns a list of result dicts.
     """
+    if not model_path or not os.path.isfile(model_path):
+        raise ValueError("A valid model_path (.pkl) must be provided.")
+    model = joblib.load(model_path)
+
     images = []
     filenames = []
-    features_list = []
 
-    # Load images and extract features
+    # Load images
     for file_path in file_paths:
         filename = os.path.basename(file_path)
         img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            print(f"Failed to read {file_path}, skipping.")
-            images.append(None)
-            filenames.append(filename)
-            features_list.append(None)
-            continue
         images.append(img)
         filenames.append(filename)
-        features_list.append(extract_features(img))
+
+    # Feature extraction (optionally parallel)
+    def safe_extract(img):
+        if img is None:
+            return None
+        try:
+            return extract_features(img)
+        except Exception as e:
+            print(f"Feature extraction failed: {e}")
+            return None
+
+    if parallel_features:
+        with ThreadPoolExecutor() as executor:
+            features_list = list(executor.map(safe_extract, images))
+    else:
+        features_list = [safe_extract(img) for img in images]
 
     # Prepare feature matrix for valid images
     valid_indices = [i for i, f in enumerate(features_list) if f is not None]
@@ -94,9 +103,12 @@ def process_images_batch(file_paths, output_dir, save_overlay=True):
     # Predict k values in batch
     k_values = np.zeros(len(images))
     if len(feature_matrix) > 0:
-        k_pred = model.predict(feature_matrix)
-        for idx, k in zip(valid_indices, k_pred):
-            k_values[idx] = k
+        try:
+            k_pred = model.predict(feature_matrix)
+            for idx, k in zip(valid_indices, k_pred):
+                k_values[idx] = k
+        except Exception as e:
+            print(f"Model prediction failed: {e}")
 
     results = []
     for i, img in enumerate(images):
