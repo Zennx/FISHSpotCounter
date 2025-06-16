@@ -11,16 +11,18 @@ import pandas as pd
 import threading
 
 from core.image_processing import process_images_batch
+import joblib
 
 save_overlay = True
 
-def spot_count(input_dir, output_dir, model_path, progress_bar=None, progress_popup=None, root=None, update_every=5, batch_size=16):
+def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar=None, progress_popup=None, root=None, update_every=5, batch_size=16):
     input_files = glob(os.path.join(input_dir, "*.ome.jpeg")) + \
                   glob(os.path.join(input_dir, "*.tif")) + \
                   glob(os.path.join(input_dir, "*.tiff"))
 
     os.makedirs(output_dir, exist_ok=True)
     output = []
+    all_k_values = []
 
     total = len(input_files)
     if progress_bar is not None:
@@ -30,7 +32,16 @@ def spot_count(input_dir, output_dir, model_path, progress_bar=None, progress_po
     # Split files into batches
     for i in range(0, total, batch_size):
         batch_files = input_files[i:i+batch_size]
-        batch_results = process_images_batch(batch_files, output_dir, save_overlay=save_overlay, model_path=model_path)
+        # Only unpack two values if process_images_batch returns two
+        batch_result = process_images_batch(
+            batch_files, output_dir, save_overlay=save_overlay, model_path=model_path, scaler_path=scaler_path
+        )
+        # Support both (results, k_values) and just results
+        if isinstance(batch_result, tuple) and len(batch_result) == 2:
+            batch_results, k_values = batch_result
+            all_k_values.extend(k_values)
+        else:
+            batch_results = batch_result
         output.extend(batch_results)
         if progress_bar is not None:
             progress_bar["value"] = min(i + batch_size, total)
@@ -77,16 +88,22 @@ def spot_count(input_dir, output_dir, model_path, progress_bar=None, progress_po
 
 # GUI setup
 
-def start_counting_popup(root, model_var):
+def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths):
     input_dir = filedialog.askdirectory(title="Select Input Folder")
     if not input_dir:
         return
     output_dir = filedialog.askdirectory(title="Select Output Folder")
     if not output_dir:
         return
-    model_path = model_var.get()
+    model_file = model_var.get()
+    model_path = model_paths.get(model_file)
+    scaler_file = scaler_var.get()
+    scaler_path = scaler_paths.get(scaler_file) if scaler_file else None
     if not model_path or not os.path.isfile(model_path):
         messagebox.showerror("Error", "Please select a valid model file.", parent=root)
+        return
+    if scaler_file and (not scaler_path or not os.path.isfile(scaler_path)):
+        messagebox.showerror("Error", "Please select a valid scaler file.", parent=root)
         return
 
     # Popup window
@@ -100,7 +117,7 @@ def start_counting_popup(root, model_var):
     popup.grab_set()  # Modal
 
     def run_count():
-        spot_count(input_dir, output_dir, model_path, progress_bar, popup, root)
+        spot_count(input_dir, output_dir, model_path, scaler_path, progress_bar, popup, root)
         messagebox.showinfo("Done", "Spot counting completed successfully!", parent=root)
         popup.destroy()
         root.quit()
@@ -110,7 +127,7 @@ def start_counting_popup(root, model_var):
 def main():
     root = tk.Tk()
     root.title("Amnis SpotCounter")
-    root.geometry("400x260")
+    root.geometry("400x300")
     root.resizable(False, False)
 
     label = tk.Label(root, text="ML-powered spot counting", font=("Arial", 12))
@@ -119,7 +136,7 @@ def main():
     # Model selection dropdown (show only file names)
     models_dir = os.path.join(os.getcwd(), "models")
     os.makedirs(models_dir, exist_ok=True)
-    model_files = [f for f in os.listdir(models_dir) if f.endswith(".pkl")]
+    model_files = [f for f in os.listdir(models_dir) if f.endswith(".pkl") and not f.endswith("_scaler.pkl")]
     model_paths = {f: os.path.join(models_dir, f) for f in model_files}
     model_var = tk.StringVar()
     model_label = tk.Label(root, text="Select model:", font=("Arial", 11))
@@ -129,41 +146,20 @@ def main():
     if model_files:
         model_var.set(model_files[0])
 
-    def start_counting_popup_with_path(root, model_var):
-        input_dir = filedialog.askdirectory(title="Select Input Folder")
-        if not input_dir:
-            return
-        output_dir = filedialog.askdirectory(title="Select Output Folder")
-        if not output_dir:
-            return
-        model_file = model_var.get()
-        model_path = model_paths.get(model_file)
-        if not model_path or not os.path.isfile(model_path):
-            messagebox.showerror("Error", "Please select a valid model file.", parent=root)
-            return
-
-        # Popup window
-        popup = tk.Toplevel(root)
-        popup.title("Processing...")
-        popup.geometry("350x100")
-        popup.resizable(False, False)
-        tk.Label(popup, text="Processing images, please wait...", font=("Arial", 11)).pack(pady=10)
-        progress_bar = ttk.Progressbar(popup, orient="horizontal", length=300, mode="determinate")
-        progress_bar.pack(pady=5)
-        popup.grab_set()  # Modal
-
-        def run_count():
-            spot_count(input_dir, output_dir, model_path, progress_bar, popup, root)
-            messagebox.showinfo("Done", "Spot counting completed successfully!", parent=root)
-            popup.destroy()
-            root.quit()
-
-        threading.Thread(target=run_count, daemon=True).start()
+    # Scaler selection dropdown (optional)
+    scaler_files = [f for f in os.listdir(models_dir) if f.endswith("_scaler.pkl")]
+    scaler_paths = {f: os.path.join(models_dir, f) for f in scaler_files}
+    scaler_var = tk.StringVar()
+    scaler_label = tk.Label(root, text="Select scaler (optional):", font=("Arial", 11))
+    scaler_label.pack()
+    scaler_dropdown = ttk.Combobox(root, textvariable=scaler_var, values=[""] + scaler_files, state="readonly", width=35)
+    scaler_dropdown.pack(pady=5)
+    scaler_var.set("")
 
     count_button = tk.Button(
         root,
         text="Start counting",
-        command=lambda: start_counting_popup_with_path(root, model_var),
+        command=lambda: start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths),
         font=("Arial", 11),
         bg="#4E4CAF",
         fg="white",

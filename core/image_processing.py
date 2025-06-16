@@ -6,7 +6,7 @@ import joblib
 from core.spot_counter import detect_spots_log, save_spot_overlay
 from concurrent.futures import ThreadPoolExecutor
 
-parallelisation_enabled = False  # Set to True/False to enable/disable parallel feature extraction
+parallelisation_enabled = True  # Set to True/False to enable/disable parallel feature extraction
 
 def extract_features(image):
     # Extract basic intensity features from an image
@@ -37,7 +37,8 @@ def process_image(file_path, output_dir, model, save_overlay=True):
         return None
 
     features = extract_features(img)
-    k = model.predict([features])[0]
+    k_log = model.predict([features])[0]
+    k = np.expm1(k_log)  # Convert log(K) back to K
     flattened = rescaled(img, features, k)
     entropy = measure.shannon_entropy(flattened)
 
@@ -61,7 +62,7 @@ def process_image(file_path, output_dir, model, save_overlay=True):
         "Entropy": entropy
     }
 
-def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=None, parallel_features=parallelisation_enabled):
+def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=None, scaler_path=None, parallel_features=parallelisation_enabled):
     """
     Process a batch of images: extract features, predict k in batch, and process each image.
     Returns a list of result dicts.
@@ -69,6 +70,9 @@ def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=N
     if not model_path or not os.path.isfile(model_path):
         raise ValueError("A valid model_path (.pkl) must be provided.")
     model = joblib.load(model_path)
+    scaler = None
+    if scaler_path and os.path.isfile(scaler_path):
+        scaler = joblib.load(scaler_path)
 
     images = []
     filenames = []
@@ -100,11 +104,19 @@ def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=N
     valid_indices = [i for i, f in enumerate(features_list) if f is not None]
     feature_matrix = np.array([features_list[i] for i in valid_indices])
 
+    # Apply scaler if provided
+    if scaler is not None and len(feature_matrix) > 0:
+        feature_matrix = scaler.transform(feature_matrix)
+    else:
+        if len(feature_matrix) > 0:
+            print("No scaler provided or no valid features to scale.")
+
     # Predict k values in batch
     k_values = np.zeros(len(images))
     if len(feature_matrix) > 0:
         try:
-            k_pred = model.predict(feature_matrix)
+            k_pred_log = model.predict(feature_matrix)
+            k_pred = np.expm1(k_pred_log)  # Convert log(K) back to K
             for idx, k in zip(valid_indices, k_pred):
                 k_values[idx] = k
         except Exception as e:
