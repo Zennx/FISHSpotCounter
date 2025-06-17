@@ -9,14 +9,13 @@ from tkinter import ttk
 from glob import glob
 import pandas as pd
 import threading
-import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
 
 from core.image_processing import process_images_batch
 
 save_overlay = True
 
-def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar=None, progress_popup=None, root=None, batch_size=24):
+def spot_count(input_dir, output_dir, model_path, scaler_path=None, batch_size=16):
     input_files = glob(os.path.join(input_dir, "*.ome.jpeg")) + \
                   glob(os.path.join(input_dir, "*.tif")) + \
                   glob(os.path.join(input_dir, "*.tiff"))
@@ -26,68 +25,21 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
     all_k_values = []
 
     total = len(input_files)
-    if progress_bar is not None:
-        progress_bar["maximum"] = total
-        progress_bar["value"] = 0
-        # --- Add label below progress bar for estimated time ---
-        if not hasattr(progress_bar, "label"):
-            progress_bar.label = tk.Label(progress_bar.master, text="Estimated time left: --:--", font=("Arial", 9))
-            progress_bar.label.pack()
 
-    start_time = time.time()
-    processed = 0
-
-    # Prepare batches
-    batches = [input_files[i:i+batch_size] for i in range(0, total, batch_size)]
-
-    # Use ProcessPoolExecutor for true parallelisation
-    with ProcessPoolExecutor() as executor:
-        futures = [
-            executor.submit(
-                process_images_batch,
-                batch_files,
-                output_dir,
-                save_overlay,
-                model_path,
-                scaler_path,
-                False  # parallel_features must be False for process-based parallelism
-            )
-            for batch_files in batches
-        ]
-
-        for future in as_completed(futures):
-            batch_result = future.result()
-            if isinstance(batch_result, tuple) and len(batch_result) == 2:
-                batch_results, k_values = batch_result
-                all_k_values.extend(k_values)
-            else:
-                batch_results = batch_result
-            output.extend(batch_results)
-            processed += batch_size
-            if progress_bar is not None:
-                progress_bar["value"] = min(processed, total)
-                if root is not None:
-                    root.update_idletasks()
-                # --- Update estimated time label ---
-                elapsed = time.time() - start_time
-                if processed > 0:
-                    rate = elapsed / processed
-                    remaining = (total - processed) * rate
-                    mins, secs = divmod(int(remaining), 60)
-                    progress_bar.label.config(text=f"Estimated time left: {mins:02d}:{secs:02d}")
+    # Use tqdm for per-batch progress bar in console (faster than per-image)
+    for i in tqdm(range(0, total, batch_size), desc="Processing images", total=(total + batch_size - 1) // batch_size):
+        batch_files = input_files[i:i+batch_size]
+        batch_result = process_images_batch(
+            batch_files, output_dir, save_overlay=save_overlay, model_path=model_path, scaler_path=scaler_path
+        )
+        if isinstance(batch_result, tuple) and len(batch_result) == 2:
+            batch_results, k_values = batch_result
+            all_k_values.extend(k_values)
+        else:
+            batch_results = batch_result
+        output.extend(batch_results)
 
     # Final update
-    if progress_bar is not None:
-        progress_bar["value"] = total
-        if root is not None:
-            root.update_idletasks()
-        # Remove estimated time label after completion
-        if hasattr(progress_bar, "label"):
-            progress_bar.label.destroy()
-            del progress_bar.label
-    if progress_popup is not None:
-        progress_popup.destroy()
-
     # Create DataFrame and save results
     df = pd.DataFrame(output)
     df.to_csv(os.path.join(output_dir, "spot_results.csv"), index=False)
@@ -138,20 +90,9 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths)
         messagebox.showerror("Error", "Please select a valid scaler file.", parent=root)
         return
 
-    # Popup window
-    popup = tk.Toplevel(root)
-    popup.title("Processing...")
-    popup.geometry("350x100")
-    popup.resizable(False, False)
-    tk.Label(popup, text="Processing images, please wait...", font=("Arial", 11)).pack(pady=10)
-    progress_bar = ttk.Progressbar(popup, orient="horizontal", length=300, mode="determinate")
-    progress_bar.pack(pady=5)
-    popup.grab_set()  # Modal
-
     def run_count():
-        spot_count(input_dir, output_dir, model_path, scaler_path, progress_bar, popup, root)
+        spot_count(input_dir, output_dir, model_path, scaler_path)
         messagebox.showinfo("Done", "Spot counting completed successfully!", parent=root)
-        popup.destroy()
         root.quit()
 
     threading.Thread(target=run_count, daemon=True).start()

@@ -48,12 +48,24 @@ def xgbost_train(features_df, results_df, model_name):
     X_val_scaled = scaler.transform(X_test)
     model = XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.075, subsample=0.8, colsample_bytree=1.0, random_state=42)
     print("Training XGBoost model...")
-    model.fit(X_train_scaled, y_train, sample_weight=w_train)
+    model.fit(X_train_scaled, y_train)
 
     # Evaluate
     y_pred = model.predict(X_val_scaled)  # Use scaled validation set
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     print(f"Model RMSE: {rmse:.4f}")
+    importances = model.feature_importances_
+    print("Feature importances:", importances)
+    # Plot feature importances
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(importances)), importances, color='orange', edgecolor='black')
+    plt.xlabel('Feature Index')
+    plt.ylabel('Importance')
+    plt.title('Feature Importances (XGBoost)')
+    plt.tight_layout()
+    plt.savefig(model_name + "_feature_importances.png")
+    plt.close()
+    print(f"Feature importances plot saved as {model_name + '_feature_importances.png'}")
 
     # Save model
     dump(model, model_name)

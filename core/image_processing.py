@@ -1,5 +1,6 @@
 import numpy as np
-from skimage import exposure, filters, measure
+from skimage import exposure, filters, measure, feature
+from scipy.stats import skew, kurtosis
 import cv2
 import os
 import joblib
@@ -8,7 +9,30 @@ from concurrent.futures import ThreadPoolExecutor
 
 parallelisation_enabled = True  # Set to True/False to enable/disable parallel feature extraction
 
-def extract_features(image):
+def extract_features(image): #all features for feature selection
+    # Extract basic intensity features from an image
+    mean = np.mean(image)
+    std = np.std(image)
+    max_val = np.max(image)
+    p75 = np.percentile(image, 75)
+    nonzero_count = np.count_nonzero(image)
+    entropy = measure.shannon_entropy(image)
+    otsu_thresh = filters.threshold_otsu(image)
+    ppxmean = (image > image.mean()).sum() / image.size
+    ppx74 = (image > np.percentile(image, 74)).sum() / image.size
+    snr = (image.max() - image.mean()) / image.std() if std > 0 else 0
+    contrast = cv2.Laplacian(image, cv2.CV_64F).var()  # Variance of Laplacian for contrast
+    skewness = skew(image.reshape(-1))  # Skewness of the image
+    kurt = kurtosis(image.reshape(-1))  # Kurtosis of the image
+    img_unit8 = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    edge_density = np.sum(cv2.Canny(img_unit8, 50, 150)) / image.size  # Edge density
+    coarseness = np.mean(np.abs(np.diff(image, axis=0))) + np.mean(np.abs(np.diff(image, axis=1)))  # Coarseness
+    lbp = feature.local_binary_pattern(image, P=8, R=1, method='uniform')  # Local Binary Pattern
+    lbp_uniform = np.sum(lbp <= 8) / image.size
+    return [mean, std, max_val, p75, nonzero_count, entropy, otsu_thresh,
+            ppxmean, ppx74, snr, contrast, skewness, kurt, edge_density, coarseness, lbp_uniform]
+
+def extract_features_all(image): #all features for feature selection
     # Extract basic intensity features from an image
     mean = np.mean(image)
     std = np.std(image)
@@ -18,7 +42,22 @@ def extract_features(image):
     nonzero_ratio = nonzero_count / image.size
     entropy = measure.shannon_entropy(image)
     otsu_thresh = filters.threshold_otsu(image)
-    return [mean, std, max_val, p75, nonzero_count, nonzero_ratio, entropy, otsu_thresh]
+    ppxmean = (image > image.mean()).sum() / image.size
+    ppx74 = (image > np.percentile(image, 74)).sum() / image.size
+    snr = (image.max() - image.mean()) / image.std() if std > 0 else 0
+    contrast = cv2.Laplacian(image, cv2.CV_64F).var()  # Variance of Laplacian for contrast
+    skewness = skew(image.reshape(-1))  # Skewness of the image
+    kurt = kurtosis(image.reshape(-1))  # Kurtosis of the image
+    img_unit8 = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    edge_density = np.sum(cv2.Canny(img_unit8, 50, 150)) / image.size  # Edge density
+    coarseness = np.mean(np.abs(np.diff(image, axis=0))) + np.mean(np.abs(np.diff(image, axis=1)))  # Coarseness
+    lbp = feature.local_binary_pattern(image, P=8, R=1, method='uniform')  # Local Binary Pattern
+    lbp_uniform = np.sum(lbp <= 8) / image.size
+    edge_density_lbp = np.sum(lbp > 8) / image.size  # Edge density of LBP
+    return [mean, std, max_val, p75, nonzero_count, nonzero_ratio, entropy, otsu_thresh,
+            ppxmean, ppx74, snr, contrast, skewness, kurt, edge_density, coarseness, lbp_uniform, edge_density_lbp]
+
+
 
 def rescaled(image, features, k):
     return exposure.rescale_intensity(image, in_range=(features[0]*k, 225))
