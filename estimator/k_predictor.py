@@ -116,18 +116,28 @@ def run_k_predictor(input_dir, output_dir):
         best_k, spot_counts = find_optimal_k(img)
         counts = [c for _, c in spot_counts]
         variance = np.var(counts)
-        weightage = compute_weight(variance)
         plot_k_vs_spots(spot_counts, best_k, filename, output_dir)
 
         records.append({
             "Image": filename,
             "Optimum_K": best_k,
             "Variance": variance,
-            "Weightage": weightage,
         })
 
     records_df = pd.DataFrame(records)
-    records_df["Weights"] = records_df["Weightage"] / records_df["Weightage"].sum()
+
+    # New weighting: inverse frequency of Optimum_K (rounded for grouping)
+    if not records_df.empty:
+        # Round K to 3 decimals for grouping (adjust as needed)
+        k_rounded = records_df["Optimum_K"].round(3)
+        freq = k_rounded.value_counts()
+        # Assign weight = 1/frequency for each image
+        records_df["Weightage"] = k_rounded.map(lambda k: 1.0 / freq[k])
+        # Normalise weights to sum to 1
+        records_df["Weights"] = records_df["Weightage"] / records_df["Weightage"].sum()
+    else:
+        records_df["Weights"] = 1.0
+
     records_df.to_csv(os.path.join(output_dir, "k_results.csv"), index=False)
     return records_df
 

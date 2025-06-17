@@ -11,6 +11,9 @@ parallelisation_enabled = True  # Set to True/False to enable/disable parallel f
 
 def extract_features(image): #all features for feature selection
     # Extract basic intensity features from an image
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    image = clahe.apply(image.astype(np.uint8))
+    image = np.clip(image + 0, 0, 255)
     mean = np.mean(image)
     std = np.std(image)
     max_val = np.max(image)
