@@ -48,7 +48,7 @@ def xgbost_train(features_df, results_df, model_name):
     X_val_scaled = scaler.transform(X_test)
     model = XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.075, subsample=0.8, colsample_bytree=1.0, random_state=42)
     print("Training XGBoost model...")
-    model.fit(X_train_scaled, y_train, sample_weight=w_train)
+    model.fit(X_train_scaled, y_train) #add sample_weight=w_train) to enable weights
 
     # Evaluate
     y_pred = model.predict(X_val_scaled)  # Use scaled validation set

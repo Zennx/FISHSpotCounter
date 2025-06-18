@@ -91,6 +91,8 @@ def process_image(file_path, output_dir, model, save_overlay=True):
         filtered = flattened
 
     filtered = cv2.GaussianBlur(flattened, (3, 3), sigmaX=0.65)
+    laplacian_sharpened = cv2.Laplacian(image, cv2.CV_64F)
+    image = cv2.convertScaleAbs(image + 0.3 * laplacian_sharpened)  # Mild sharpening
     blobs = detect_spots_log(filtered)
 
     if save_overlay:

@@ -30,6 +30,8 @@ def count_spots_at_k(img, features, k):
 
     filtered = filtered.astype(np.uint8) * 255
     filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
+    laplacian_sharpened = cv2.Laplacian(image, cv2.CV_64F)
+    image = cv2.convertScaleAbs(image + 0.3 * laplacian_sharpened)  # Mild sharpening
     blobs = detect_spots_log(filtered)
     return len(blobs)
 

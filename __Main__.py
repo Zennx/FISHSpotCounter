@@ -49,17 +49,17 @@ def main():
     bottom_frame.pack(side="bottom", fill="x", pady=10)
 
     img_folder = os.path.join(os.getcwd(), "img")
-    try:
-        print("Files in img folder:", os.listdir(img_folder))
-    except Exception as e:
-        print("Could not list img folder:", e)
+    # try:  # Uncomment if you want to check if the img folder exists
+    #    print("Files in img folder:", os.listdir(img_folder))
+    #except Exception as e:
+    #    print("Could not list img folder:", e)
 
     uwa_img_path = os.path.join(img_folder, "UWA.jpg")
     iff_img_path = os.path.join(img_folder, "IFF.png")
 
     def load_img(path, max_height=60, fixed_size=(60, 60), keep_aspect=False):
         try:
-            print(f"Trying to load image: {path}")
+            # print(f"Trying to load image: {path}")
             img = Image.open(path)
             if keep_aspect:
                 # Resize to fit max_height, keep aspect ratio
@@ -76,7 +76,7 @@ def main():
             return None
 
     uwa_img = load_img(uwa_img_path, max_height=60, keep_aspect=True)
-    iff_img = load_img(iff_img_path, fixed_size=(60, 60), keep_aspect=False)
+    iff_img = load_img(iff_img_path, max_height=70, keep_aspect=True)
 
     uwa_panel = tk.Frame(bottom_frame)
     uwa_panel.pack(side="left", padx=30, anchor="w")
