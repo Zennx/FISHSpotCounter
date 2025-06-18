@@ -91,9 +91,9 @@ def process_image(file_path, output_dir, model, save_overlay=True):
         filtered = flattened
 
     filtered = cv2.GaussianBlur(flattened, (3, 3), sigmaX=0.65)
-    laplacian_sharpened = cv2.Laplacian(image, cv2.CV_64F)
-    image = cv2.convertScaleAbs(image + 0.3 * laplacian_sharpened)  # Mild sharpening
-    blobs = detect_spots_log(filtered)
+    laplacian_sharpened = cv2.Laplacian(filtered, cv2.CV_64F)
+    sharpened = cv2.convertScaleAbs(filtered + 0.3 * laplacian_sharpened)  # Mild sharpening
+    blobs = detect_spots_log(sharpened)
 
     if save_overlay:
         overlay_path = os.path.join(output_dir, f"{os.path.splitext(filename)[0]}_overlay.png")
@@ -117,6 +117,12 @@ def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=N
     scaler = None
     if scaler_path and os.path.isfile(scaler_path):
         scaler = joblib.load(scaler_path)
+
+    # Load bins if available (for classification model)
+    bins = None
+    bins_path = model_path.replace(".pkl", "_bins.npy")
+    if os.path.isfile(bins_path):
+        bins = np.load(bins_path)
 
     images = []
     filenames = []
@@ -159,10 +165,19 @@ def process_images_batch(file_paths, output_dir, save_overlay=True, model_path=N
     k_values = np.zeros(len(images))
     if len(feature_matrix) > 0:
         try:
-            k_pred_log = model.predict(feature_matrix)
-            k_pred = np.expm1(k_pred_log)  # Convert log(K) back to K
-            for idx, k in zip(valid_indices, k_pred):
-                k_values[idx] = k
+            # If bins exist, use classification model (predict bin index, then map to K)
+            if bins is not None:
+                bin_indices = model.predict(feature_matrix)
+                # Map bin index to K value (use bin center)
+                k_pred = (bins[bin_indices] + bins[bin_indices + 1]) / 2
+                for idx, k in zip(valid_indices, k_pred):
+                    k_values[idx] = k
+            else:
+                # Regression model fallback (legacy)
+                k_pred_log = model.predict(feature_matrix)
+                k_pred = np.expm1(k_pred_log)  # Convert log(K) back to K
+                for idx, k in zip(valid_indices, k_pred):
+                    k_values[idx] = k
         except Exception as e:
             print(f"Model prediction failed: {e}")
 

@@ -30,8 +30,8 @@ def count_spots_at_k(img, features, k):
 
     filtered = filtered.astype(np.uint8) * 255
     filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
-    laplacian_sharpened = cv2.Laplacian(image, cv2.CV_64F)
-    image = cv2.convertScaleAbs(image + 0.3 * laplacian_sharpened)  # Mild sharpening
+    laplacian_sharpened = cv2.Laplacian(filtered, cv2.CV_64F)
+    image = cv2.convertScaleAbs(filtered + 0.3 * laplacian_sharpened)  # Mild sharpening
     blobs = detect_spots_log(filtered)
     return len(blobs)
 
@@ -101,6 +101,11 @@ def compute_weight(variance):
     return 1 / (1 + variance)
 
 
+def find_working_k_range(spot_counts):
+    # Return all K where count == EXPECTED_SPOTS
+    return [k for k, count in spot_counts if count == EXPECTED_SPOTS]
+
+
 def run_k_predictor(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     input_files = glob(os.path.join(input_dir, "*.tif")) + \
@@ -116,29 +121,39 @@ def run_k_predictor(input_dir, output_dir):
             continue
 
         best_k, spot_counts = find_optimal_k(img)
-        counts = [c for _, c in spot_counts]
-        variance = np.var(counts)
+        working_ks = find_working_k_range(spot_counts)
+        if working_ks:
+            min_k = min(working_ks)
+            max_k = max(working_ks)
+            median_k = np.median(working_ks)
+        else:
+            min_k = max_k = median_k = np.nan
+
         plot_k_vs_spots(spot_counts, best_k, filename, output_dir)
 
         records.append({
             "Image": filename,
-            "Optimum_K": best_k,
-            "Variance": variance,
+            "Min_K": min_k,
+            "Max_K": max_k,
+            "Median_K": median_k,
+            "Working_Ks": working_ks,
         })
 
     records_df = pd.DataFrame(records)
 
-    # New weighting: inverse frequency of Optimum_K (rounded for grouping)
+    # QC: Histogram of median K values
     if not records_df.empty:
-        # Round K to 3 decimals for grouping (adjust as needed)
-        k_rounded = records_df["Optimum_K"].round(3)
-        freq = k_rounded.value_counts()
-        # Assign weight = 1/frequency for each image
-        records_df["Weightage"] = k_rounded.map(lambda k: 1.0 / freq[k])
-        # Normalise weights to sum to 1
-        records_df["Weights"] = records_df["Weightage"] / records_df["Weightage"].sum()
-    else:
-        records_df["Weights"] = 1.0
+        plt.figure()
+        plt.hist(records_df["Median_K"].dropna(), bins=30, color='orange', edgecolor='black')
+        plt.xlabel('Median K Value')
+        plt.ylabel('Frequency')
+        plt.title('Histogram of Median K Values (Training Set)')
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "median_K_histogram.png"))
+        plt.close()
+        print("Median K value histogram saved as median_K_histogram.png")
+        print("Median K value variance:", np.var(records_df["Median_K"].dropna()))
+        print("Median K value mode:", records_df["Median_K"].mode().values)
 
     records_df.to_csv(os.path.join(output_dir, "k_results.csv"), index=False)
     return records_df
