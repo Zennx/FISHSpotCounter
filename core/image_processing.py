@@ -101,6 +101,12 @@ def process_images_batch(
     if scaler_path and os.path.isfile(scaler_path):
         scaler = joblib.load(scaler_path)
 
+    # Load bins if available (for classification model)
+    bins = None
+    bins_path = model_path.replace(".pkl", "_bins.npy")
+    if os.path.isfile(bins_path):
+        bins = np.load(bins_path)
+
     images = []
     filenames = []
     masks = []
@@ -153,10 +159,19 @@ def process_images_batch(
     k_values = np.zeros(len(images))
     if len(feature_matrix) > 0:
         try:
-            k_pred_log = model.predict(feature_matrix)
-            k_pred = np.expm1(k_pred_log)  # Convert log(K) back to K
-            for idx, k in zip(valid_indices, k_pred):
-                k_values[idx] = k
+            # If bins exist, use classification model (predict bin index, then map to K)
+            if bins is not None:
+                bin_indices = model.predict(feature_matrix)
+                # Map bin index to K value (use bin center)
+                k_pred = (bins[bin_indices] + bins[bin_indices + 1]) / 2
+                for idx, k in zip(valid_indices, k_pred):
+                    k_values[idx] = k
+            else:
+                # Regression model fallback (legacy)
+                k_pred_log = model.predict(feature_matrix)
+                k_pred = np.expm1(k_pred_log)  # Convert log(K) back to K
+                for idx, k in zip(valid_indices, k_pred):
+                    k_values[idx] = k
         except Exception as e:
             print(f"Model prediction failed: {e}")
 
