@@ -9,7 +9,7 @@ from glob import glob
 import pandas as pd
 from tqdm import tqdm
 
-from core.image_processing import extract_features, rescaled, apply_otsu_threshold
+from core.image_processing import extract_features, rescaled_Oligo, apply_otsu_threshold, laplacian_sharpening
 from core.spot_counter import detect_spots_log
 
 EXPECTED_SPOTS = 2
@@ -19,7 +19,7 @@ K_FINE_STEP = 0.01
 
 
 def count_spots_at_k(img, features, k):
-    flattened = rescaled(img, features, k)
+    flattened = rescaled_Oligo(img, features, k)
     entropy = measure.shannon_entropy(flattened)
 
     if entropy > 0.03 and k > 2.5:
@@ -30,9 +30,8 @@ def count_spots_at_k(img, features, k):
 
     filtered = filtered.astype(np.uint8) * 255
     filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
-    laplacian_sharpened = cv2.Laplacian(image, cv2.CV_64F)
-    image = cv2.convertScaleAbs(image + 0.3 * laplacian_sharpened)  # Mild sharpening
-    blobs = detect_spots_log(filtered)
+    sharpened = laplacian_sharpening(filtered)
+    blobs = detect_spots_log(sharpened)
     return len(blobs)
 
 

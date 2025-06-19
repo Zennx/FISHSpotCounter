@@ -12,11 +12,24 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from core.image_processing import process_images_batch
-
 save_overlay = True
 
-def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar=None, progress_popup=None, root=None, batch_size=24):
+def batch_worker(batch_files, output_dir, save_overlay, model_path, scaler_path, probe_type, masks_dir):
+    # Only import here, not at module level, to avoid pickling issues
+    from core.image_processing import process_images_batch
+    return process_images_batch(
+        batch_files,
+        output_dir,
+        save_overlay,
+        model_path,
+        scaler_path,
+        False,  # parallel_features
+        masks_dir,
+        probe_type
+    )
+
+def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar=None, 
+               progress_popup=None, root=None, batch_size=64, masks_dir=None, probe_type="BAC"):
     input_files = glob(os.path.join(input_dir, "*.ome.jpeg")) + \
                   glob(os.path.join(input_dir, "*.tif")) + \
                   glob(os.path.join(input_dir, "*.tiff"))
@@ -29,7 +42,6 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
     if progress_bar is not None:
         progress_bar["maximum"] = total
         progress_bar["value"] = 0
-        # --- Add label below progress bar for estimated time ---
         if not hasattr(progress_bar, "label"):
             progress_bar.label = tk.Label(progress_bar.master, text="Estimated time left: --:--", font=("Arial", 9))
             progress_bar.label.pack()
@@ -37,26 +49,27 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
     start_time = time.time()
     processed = 0
 
-    # Prepare batches
     batches = [input_files[i:i+batch_size] for i in range(0, total, batch_size)]
 
-    # Use ProcessPoolExecutor for true parallelisation
+    # --- Only pass simple arguments to the process pool ---
     with ProcessPoolExecutor() as executor:
         futures = [
             executor.submit(
-                process_images_batch,
+                batch_worker,
                 batch_files,
                 output_dir,
                 save_overlay,
                 model_path,
                 scaler_path,
-                False  # parallel_features must be False for process-based parallelism
+                probe_type,
+                masks_dir
             )
             for batch_files in batches
         ]
 
         for future in as_completed(futures):
             batch_result = future.result()
+            # --- GUI objects (progress_bar, root, etc.) are only used here, in the main process ---
             if isinstance(batch_result, tuple) and len(batch_result) == 2:
                 batch_results, k_values = batch_result
                 all_k_values.extend(k_values)
@@ -68,7 +81,6 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
                 progress_bar["value"] = min(processed, total)
                 if root is not None:
                     root.update_idletasks()
-                # --- Update estimated time label ---
                 elapsed = time.time() - start_time
                 if processed > 0:
                     rate = elapsed / processed
@@ -120,10 +132,15 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
 
 # GUI setup
 
-def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths):
+def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var):
     input_dir = filedialog.askdirectory(title="Select Input Folder")
     if not input_dir:
         return
+    masks_dir = None
+    if mask_var.get() == "Yes":
+        masks_dir = filedialog.askdirectory(title="Select Masks Folder")
+        if not masks_dir:
+            return
     output_dir = filedialog.askdirectory(title="Select Output Folder")
     if not output_dir:
         return
@@ -138,6 +155,9 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths)
         messagebox.showerror("Error", "Please select a valid scaler file.", parent=root)
         return
 
+    # --- Ensure probe_type is passed as a string, not as a StringVar ---
+    probe_type = probe_var.get() if hasattr(probe_var, "get") else str(probe_var)
+
     # Popup window
     popup = tk.Toplevel(root)
     popup.title("Processing...")
@@ -149,7 +169,8 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths)
     popup.grab_set()  # Modal
 
     def run_count():
-        spot_count(input_dir, output_dir, model_path, scaler_path, progress_bar, popup, root)
+        spot_count(input_dir, output_dir, model_path, scaler_path, progress_bar, 
+                   popup, root, batch_size=64, masks_dir=masks_dir, probe_type=probe_type)
         messagebox.showinfo("Done", "Spot counting completed successfully!", parent=root)
         popup.destroy()
         root.quit()
@@ -159,7 +180,7 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths)
 def main():
     root = tk.Tk()
     root.title("Amnis SpotCounter")
-    root.geometry("400x300")
+    root.geometry("400x340")
     root.resizable(False, False)
 
     label = tk.Label(root, text="ML-powered spot counting", font=("Arial", 12))
@@ -188,10 +209,25 @@ def main():
     scaler_dropdown.pack(pady=5)
     scaler_var.set("")
 
+    # Mask toggle
+    mask_var = tk.StringVar(value="No")
+    mask_label = tk.Label(root, text="Masks?", font=("Arial", 11))
+    mask_label.pack()
+    mask_dropdown = ttk.Combobox(root, textvariable=mask_var, values=["No", "Yes"], state="readonly", width=10)
+    mask_dropdown.pack(pady=5)
+
+    # Probe type toggle
+    probe_var = tk.StringVar(value="BAC")
+    probe_label = tk.Label(root, text="Probe type??", font=("Arial", 11))
+    probe_label.pack()
+    probe_dropdown = ttk.Combobox(root, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
+    probe_dropdown.pack(pady=5)
+
+
     count_button = tk.Button(
         root,
         text="Start counting",
-        command=lambda: start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths),
+        command=lambda: start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var),
         font=("Arial", 11),
         bg="#4E4CAF",
         fg="white",

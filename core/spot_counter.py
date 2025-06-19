@@ -9,6 +9,17 @@ def detect_spots_log(image, min_sigma=1.25, max_sigma=5, num_sigma=10, threshold
                              num_sigma=num_sigma, threshold=threshold)
     # Compute radii
     blobs[:, 2] = blobs[:, 2] * np.sqrt(2)
+    print(f"Detected {len(blobs)} spots using LoG")
+    return blobs
+
+def detect_spots_doh(image, min_sigma=1, max_sigma=6, num_sigma=10, threshold=0.01):
+    """Detect spots using Determinant of Hessian (DoH)."""
+    blobs_raw = feature.blob_doh(image, min_sigma=min_sigma, max_sigma=max_sigma,
+                             num_sigma=num_sigma, threshold=threshold)
+    # Compute radii
+    blobs_raw[:, 2] = blobs_raw[:, 2] * np.sqrt(2)
+    blobs = [b for b in blobs_raw if b[2] > 3]
+    print(f"Detected {len(blobs)} spots using DoH")
     return blobs
 
 def save_spot_overlay(image, blobs, save_path, title="LoG Spot Detection"):
