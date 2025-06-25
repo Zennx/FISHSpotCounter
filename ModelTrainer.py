@@ -29,9 +29,9 @@ def extract_and_save_features(input_dir, output_dir):
     print(f"Features saved to {optimiser_features_csv}")
     return features_df  # Return the DataFrame directly
 
-def run_optimiser_and_train(input_dir, output_dir, model_name, root):
+def run_optimiser_and_train(input_dir, output_dir, model_name, probe_type, root):
     features_df = extract_and_save_features(input_dir, output_dir)
-    results_df = estimator.k_predictor.run_k_predictor(input_dir, output_dir)
+    results_df = estimator.k_predictor.run_k_predictor(input_dir, output_dir, probe_type=probe_type)
     # Ensure models directory exists
     models_dir = os.path.join(os.getcwd(), "models")
     os.makedirs(models_dir, exist_ok=True)
@@ -40,7 +40,7 @@ def run_optimiser_and_train(input_dir, output_dir, model_name, root):
     messagebox.showinfo("Done", f"Optimisation and training successful!\nModel saved as:\n{model_path}", parent=root)
     root.quit()
 
-def start_optimising_popup(root, model_name_var):
+def start_optimising_popup(root, model_name_var, probe_type_var):
     input_dir = filedialog.askdirectory(title="Select Input Folder")
     if not input_dir:
         return
@@ -51,12 +51,13 @@ def start_optimising_popup(root, model_name_var):
     if not model_name:
         messagebox.showerror("Error", "Please enter a model name.", parent=root)
         return
-    threading.Thread(target=run_optimiser_and_train, args=(input_dir, output_dir, model_name, root), daemon=True).start()
+    probe_type = probe_type_var.get()
+    threading.Thread(target=run_optimiser_and_train, args=(input_dir, output_dir, model_name, probe_type, root), daemon=True).start()
 
 def main():
     root = tk.Tk()
     root.title("Amnis SpotCounter - Model Training")
-    root.geometry("400x260")
+    root.geometry("400x300")
     root.resizable(False, False)
 
     label = tk.Label(root, text="Model training using XGBoost.", font=("Arial", 12))
@@ -72,10 +73,18 @@ def main():
     model_name_entry.pack(pady=5)
     model_name_var.set("k_predictor_model")  # Default value
 
+    # Probe type dropdown
+    probe_type_var = tk.StringVar(value="Oligo")
+    probe_type_label = tk.Label(root, text="Probe type:", font=("Arial", 11))
+    probe_type_label.pack()
+    probe_type_dropdown = tk.OptionMenu(root, probe_type_var, "Oligo", "BAC")
+    probe_type_dropdown.config(width=10, font=("Arial", 11))
+    probe_type_dropdown.pack(pady=5)
+
     count_button = tk.Button(
         root,
         text="Train XGBoost Model",
-        command=lambda: start_optimising_popup(root, model_name_var),
+        command=lambda: start_optimising_popup(root, model_name_var, probe_type_var),
         font=("Arial", 11),
         bg="#F38841",
         fg="white",

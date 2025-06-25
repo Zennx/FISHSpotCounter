@@ -4,7 +4,7 @@ from scipy.stats import skew, kurtosis
 import cv2
 import os
 import joblib
-from core.spot_counter import detect_spots_log, detect_spots_doh, save_spot_overlay
+from core.spot_counter import detect_spots_log, detect_spots_log_bac, save_spot_overlay
 from concurrent.futures import ThreadPoolExecutor
 from core.file_handler import get_mask_path
 
@@ -67,7 +67,7 @@ def rescaled_Oligo(image, features, k):
     return exposure.rescale_intensity(image, in_range=(features[0]*k, 225))
 
 def rescaled_BAC(image, features, k):
-    return exposure.rescale_intensity(image, in_range=(features[0]*k, 255))
+    return exposure.rescale_intensity(image, in_range=(features[0]*k, 1200))
 
 def apply_otsu_threshold(image):
     """Apply Otsu thresholding."""
@@ -159,6 +159,12 @@ def process_images_batch(
         except Exception as e:
             print(f"Model prediction failed: {e}")
 
+    # --- Pre-generate a large noise profile for efficiency (covers largest image) ---
+    max_height = max((img.shape[0] for img in images if img is not None), default=0)
+    max_width = max((img.shape[1] for img in images if img is not None), default=0)
+    noise_matrix = None
+    noise_matrix = np.random.normal(loc=0, scale=0.01, size=(max_height, max_width)).astype(np.float32)
+
     results = []
     for i, img in enumerate(images):
         filename = filenames[i]
@@ -179,23 +185,27 @@ def process_images_batch(
 
         entropy = measure.shannon_entropy(flattened)
 
-        if entropy > 0.03 and k > 2.5:
-            smoothed = cv2.GaussianBlur(flattened.astype(np.uint8), (3, 3), 0)
-            filtered = apply_otsu_threshold(smoothed)
-            # Ensure filtered is float32 for further OpenCV ops
+        # --- Add noise before smoothening for spot counting ---
+        if noise_matrix is not None:
+            h, w = flattened.shape[:2]
+            flattened = flattened + (noise_matrix[:h, :w]*0.6)
+            flattened = np.clip(flattened, 0, 255)
+
+        if entropy > 0.03 and k > 2.5:      #additional smoothing for high entropy images
+            filtered = cv2.GaussianBlur(flattened.astype(np.uint8), (3, 3), 0)
             filtered = filtered.astype(np.float32)
         else:
             filtered = flattened.astype(np.float32)
 
-        filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
-        sharpened = laplacian_sharpening(filtered)
-
         if probe_type_str == "OLIGO":
+            filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
+            sharpened = laplacian_sharpening(filtered)
             blobs = detect_spots_log(sharpened)
         elif probe_type_str == "BAC":
-            blobs = detect_spots_doh(sharpened)
+            filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.75)
+            blobs = detect_spots_log_bac(filtered)
         else:
-            blobs = detect_spots_log(sharpened)
+            blobs = detect_spots_log(filtered)
 
         # --- Masking logic ---
         mask_img = masks[i]
@@ -211,8 +221,12 @@ def process_images_batch(
             blobs = np.array(filtered_blobs)
 
         if save_overlay:
-            overlay_path = os.path.join(output_dir, f"{os.path.splitext(filename)[0]}_overlay.png")
-            save_spot_overlay(flattened, blobs, overlay_path, title=f"Detected Spots - {filename}")
+            # --- Save overlays in subfolders by spot count ---
+            spot_count = len(blobs) if blobs is not None else 0
+            overlay_dir = os.path.join(output_dir, str(spot_count))
+            os.makedirs(overlay_dir, exist_ok=True)
+            overlay_path = os.path.join(overlay_dir, f"{os.path.splitext(filename)[0]}_overlay.png")
+            save_spot_overlay(filtered, blobs, overlay_path, title=f"Detected Spots - {filename}")
 
         results.append({
             "Image": filename,
@@ -221,3 +235,43 @@ def process_images_batch(
             "Entropy": entropy
         })
     return results
+
+def analyze_image_for_spots(img, features, k, probe_type="BAC", noise_matrix=None):
+    """
+    Centralized image analysis pipeline for spot counting.
+    Applies rescaling, noise, smoothing, and spot detection.
+    Returns number of detected spots.
+    """
+    probe_type_str = str(probe_type).strip().upper()
+    if probe_type_str == "BAC":
+        flattened = rescaled_BAC(img, features, k)
+    elif probe_type_str == "OLIGO":
+        flattened = rescaled_Oligo(img, features, k)
+    else:
+        print(f"Warning: Unknown probe_type '{probe_type}', defaulting to BAC rescaling.")
+        flattened = rescaled_BAC(img, features, k)
+
+    entropy = measure.shannon_entropy(flattened)
+
+    # Add noise if provided
+    if noise_matrix is not None:
+        h, w = flattened.shape[:2]
+        flattened = flattened + (noise_matrix[:h, :w]*0.6)
+        flattened = np.clip(flattened, 0, 255)
+
+    if entropy > 0.03 and k > 2.5:
+        filtered = cv2.GaussianBlur(flattened.astype(np.uint8), (3, 3), 0)
+        filtered = filtered.astype(np.float32)
+    else:
+        filtered = flattened.astype(np.float32)
+
+    if probe_type_str == "OLIGO":
+        filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.65)
+        sharpened = laplacian_sharpening(filtered)
+        blobs = detect_spots_log(sharpened)
+    elif probe_type_str == "BAC":
+        filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.75)
+        blobs = detect_spots_log_bac(filtered)
+    else:
+        blobs = detect_spots_log(filtered)
+    return len(blobs)

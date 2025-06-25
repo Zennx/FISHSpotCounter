@@ -209,20 +209,35 @@ def main():
     scaler_dropdown.pack(pady=5)
     scaler_var.set("")
 
+    # Mask and Probe type toggles (side by side)
+    options_frame = tk.Frame(root)
+    options_frame.pack(pady=(20, 0))  # Increased top padding
+
     # Mask toggle
     mask_var = tk.StringVar(value="No")
-    mask_label = tk.Label(root, text="Masks?", font=("Arial", 11))
-    mask_label.pack()
-    mask_dropdown = ttk.Combobox(root, textvariable=mask_var, values=["No", "Yes"], state="readonly", width=10)
-    mask_dropdown.pack(pady=5)
+    mask_label = tk.Label(options_frame, text="Masks?", font=("Arial", 11))
+    mask_label.grid(row=0, column=0, padx=(0, 5))
+    mask_dropdown = ttk.Combobox(options_frame, textvariable=mask_var, values=["No", "Yes"], state="readonly", width=10)
+    mask_dropdown.grid(row=0, column=1, padx=(0, 15))
 
     # Probe type toggle
     probe_var = tk.StringVar(value="BAC")
-    probe_label = tk.Label(root, text="Probe type??", font=("Arial", 11))
-    probe_label.pack()
-    probe_dropdown = ttk.Combobox(root, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
-    probe_dropdown.pack(pady=5)
+    probe_label = tk.Label(options_frame, text="Probe type?", font=("Arial", 11))
+    probe_label.grid(row=0, column=2, padx=(0, 5))
+    probe_dropdown = ttk.Combobox(options_frame, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
+    probe_dropdown.grid(row=0, column=3)
 
+    # Alternative vertical design (uncomment to use)
+    # mask_var = tk.StringVar(value="No")
+    # mask_label = tk.Label(root, text="Masks?", font=("Arial", 11))
+    # mask_label.pack(pady=(20, 0))
+    # mask_dropdown = ttk.Combobox(root, textvariable=mask_var, values=["No", "Yes"], state="readonly", width=10)
+    # mask_dropdown.pack(pady=(0, 10))
+    # probe_var = tk.StringVar(value="BAC")
+    # probe_label = tk.Label(root, text="Probe type?", font=("Arial", 11))
+    # probe_label.pack()
+    # probe_dropdown = ttk.Combobox(root, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
+    # probe_dropdown.pack(pady=(0, 10))
 
     count_button = tk.Button(
         root,
@@ -234,7 +249,7 @@ def main():
         padx=10,
         pady=5
     )
-    count_button.pack(pady=10)
+    count_button.pack(pady=(20, 10))  # Increased top padding
 
     root.mainloop()
 
