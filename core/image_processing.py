@@ -39,6 +39,7 @@ def extract_features(image): #all features for feature selection
 
 def extract_features_all(image): #all features for feature selection
     # Extract basic intensity features from an image
+    # for record purposes, not in use
     mean = np.mean(image)
     std = np.std(image)
     max_val = np.max(image)
@@ -271,7 +272,8 @@ def analyze_image_for_spots(img, features, k, probe_type="BAC", noise_matrix=Non
         blobs = detect_spots_log(sharpened)
     elif probe_type_str == "BAC":
         filtered = cv2.GaussianBlur(filtered, (3, 3), sigmaX=0.75)
-        blobs = detect_spots_log_bac(filtered)
+        sharpened = laplacian_sharpening(filtered)
+        blobs = detect_spots_log_bac(sharpened)
     else:
         blobs = detect_spots_log(filtered)
     return len(blobs)

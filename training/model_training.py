@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 from joblib import dump
 import matplotlib.pyplot as plt
+from scipy.stats import kurtosis, skew, normaltest
 
 # Paths
 features_csv = None  # Precomputed features
@@ -21,17 +22,27 @@ def xgbost_train(features_df, results_df, model_name):
     w = merged["Weights"].values
 
     # QC: Plot histogram of K values (non-log)
+    k_kurt = kurtosis(y)
+    k_skew = skew(y)
+    k_norm_stat, k_norm_p = normaltest(y)
+
     plt.figure()
     plt.hist(y, bins=30, color='orange', edgecolor='black')
     plt.xlabel('Optimum K Value')
     plt.ylabel('Frequency')
     plt.title('Histogram of Optimum K Values (Training Set)')
+    # Annotate stats in top left
+    stats_text = f"Kurtosis: {k_kurt:.2f}\nSkewness: {k_skew:.2f}\nNormality p: {k_norm_p:.3g}"
+    plt.gca().text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, fontsize=10, va='top', ha='left', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
     plt.tight_layout()
     plt.savefig(model_name + "_K_histogram.png")
     plt.close()
     print(f"K value histogram saved as {model_name + '_K_histogram.png'}")
     print("K value variance:", np.var(y))
     print("K value mode:", pd.Series(y).mode().values)
+    print(f"Kurtosis: {k_kurt:.3f}")
+    print(f"Skewness: {k_skew:.3f}")
+    print(f"Normality test p-value: {k_norm_p:.3g}")
 
     # Log-transform for training
     y_log = np.log1p(y)

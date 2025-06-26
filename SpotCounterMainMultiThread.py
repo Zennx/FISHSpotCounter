@@ -29,10 +29,16 @@ def batch_worker(batch_files, output_dir, save_overlay, model_path, scaler_path,
     )
 
 def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar=None, 
-               progress_popup=None, root=None, batch_size=64, masks_dir=None, probe_type="BAC"):
+               progress_popup=None, root=None, batch_size=64, masks_dir=None, probe_type="BAC", channels=None):
     input_files = glob(os.path.join(input_dir, "*.ome.jpeg")) + \
                   glob(os.path.join(input_dir, "*.tif")) + \
                   glob(os.path.join(input_dir, "*.tiff"))
+
+    # --- Filter files by selected channel (now only one) ---
+    if channels:
+        # channels is now a string, e.g. "Ch2" or "Ch3"
+        ch = str(channels)
+        input_files = [f for f in input_files if ch in os.path.splitext(os.path.basename(f))[0]]
 
     os.makedirs(output_dir, exist_ok=True)
     output = []
@@ -132,7 +138,7 @@ def spot_count(input_dir, output_dir, model_path, scaler_path=None, progress_bar
 
 # GUI setup
 
-def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var):
+def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var, channel_combobox):
     input_dir = filedialog.askdirectory(title="Select Input Folder")
     if not input_dir:
         return
@@ -155,8 +161,13 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths,
         messagebox.showerror("Error", "Please select a valid scaler file.", parent=root)
         return
 
-    # --- Ensure probe_type is passed as a string, not as a StringVar ---
     probe_type = probe_var.get() if hasattr(probe_var, "get") else str(probe_var)
+
+    # --- Get selected channel (single) ---
+    selected_channel = channel_combobox.get()
+    if not selected_channel:
+        messagebox.showerror("Error", "Please select a channel.", parent=root)
+        return
 
     # Popup window
     popup = tk.Toplevel(root)
@@ -170,7 +181,7 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths,
 
     def run_count():
         spot_count(input_dir, output_dir, model_path, scaler_path, progress_bar, 
-                   popup, root, batch_size=64, masks_dir=masks_dir, probe_type=probe_type)
+                   popup, root, batch_size=64, masks_dir=masks_dir, probe_type=probe_type, channels=selected_channel)
         messagebox.showinfo("Done", "Spot counting completed successfully!", parent=root)
         popup.destroy()
         root.quit()
@@ -180,7 +191,7 @@ def start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths,
 def main():
     root = tk.Tk()
     root.title("Amnis SpotCounter")
-    root.geometry("400x340")
+    root.geometry("400x380")
     root.resizable(False, False)
 
     label = tk.Label(root, text="ML-powered spot counting", font=("Arial", 12))
@@ -227,22 +238,19 @@ def main():
     probe_dropdown = ttk.Combobox(options_frame, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
     probe_dropdown.grid(row=0, column=3)
 
-    # Alternative vertical design (uncomment to use)
-    # mask_var = tk.StringVar(value="No")
-    # mask_label = tk.Label(root, text="Masks?", font=("Arial", 11))
-    # mask_label.pack(pady=(20, 0))
-    # mask_dropdown = ttk.Combobox(root, textvariable=mask_var, values=["No", "Yes"], state="readonly", width=10)
-    # mask_dropdown.pack(pady=(0, 10))
-    # probe_var = tk.StringVar(value="BAC")
-    # probe_label = tk.Label(root, text="Probe type?", font=("Arial", 11))
-    # probe_label.pack()
-    # probe_dropdown = ttk.Combobox(root, textvariable=probe_var, values=["BAC", "Oligo"], state="readonly", width=10)
-    # probe_dropdown.pack(pady=(0, 10))
+    # --- Channel selector (single-select Combobox) ---
+    channel_frame = tk.Frame(root)
+    channel_frame.pack(pady=(15, 0))
+    channel_label = tk.Label(channel_frame, text="Select channel:", font=("Arial", 11))
+    channel_label.pack(side="left", padx=(0, 10))
+    channel_combobox = ttk.Combobox(channel_frame, values=["Ch2", "Ch3"], state="readonly", width=8, font=("Arial", 10))
+    channel_combobox.set("Ch2")  # Default selection
+    channel_combobox.pack(side="left")
 
     count_button = tk.Button(
         root,
         text="Start counting",
-        command=lambda: start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var),
+        command=lambda: start_counting_popup(root, model_var, scaler_var, model_paths, scaler_paths, mask_var, probe_var, channel_combobox),
         font=("Arial", 11),
         bg="#4E4CAF",
         fg="white",

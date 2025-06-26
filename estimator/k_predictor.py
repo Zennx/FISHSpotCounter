@@ -8,6 +8,7 @@ from skimage import measure
 from glob import glob
 import pandas as pd
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 from core.image_processing import extract_features, analyze_image_for_spots
 
@@ -53,7 +54,7 @@ def find_longest_contiguous_k(spot_counts):
 def get_k_range(probe_type):
     probe_type_str = str(probe_type).strip().lower()
     if probe_type_str == 'bac':
-        return (1.0, 12.0)
+        return (1.0, 18.0)
     else:
         return (0.5, 3.0)
 
@@ -62,17 +63,20 @@ def find_optimal_k(img, probe_type='oligo'):
     features = extract_features(img)  # Extract once
     k_range = get_k_range(probe_type)
     ks = np.arange(k_range[0], k_range[1] + K_STEP, K_STEP)
-    # Generate a noise matrix for this image size (optional, or pass None)
     h, w = img.shape[:2]
     noise_matrix = np.random.normal(loc=0, scale=0.01, size=(h, w)).astype(np.float32)
-    spot_counts = [(k, count_spots_at_k(img, features, k, probe_type=probe_type, noise_matrix=noise_matrix)) for k in ks]
+    # Parallelize spot counting across K values
+    def spot_count_worker(k):
+        return (k, count_spots_at_k(img, features, k, probe_type=probe_type, noise_matrix=noise_matrix))
+    with ThreadPoolExecutor() as executor:
+        spot_counts = list(executor.map(spot_count_worker, ks))
 
     best_k = find_longest_contiguous_k(spot_counts)
 
     if best_k is None:
-        # Try finer resolution if no valid K found
         ks_fine = np.arange(k_range[0], k_range[1] + K_FINE_STEP, K_FINE_STEP)
-        spot_counts = [(k, count_spots_at_k(img, features, k, probe_type=probe_type, noise_matrix=noise_matrix)) for k in ks_fine]
+        with ThreadPoolExecutor() as executor:
+            spot_counts = list(executor.map(spot_count_worker, ks_fine))
         best_k = find_longest_contiguous_k(spot_counts)
 
     return best_k, spot_counts

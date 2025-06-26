@@ -13,7 +13,7 @@ def detect_spots_log(image, min_sigma=1.25, max_sigma=5, num_sigma=10, threshold
     # print(f"Detected {len(blobs)} spots using LoG")
     return blobs
 
-def detect_spots_log_bac(image, min_sigma=1, max_sigma=12, num_sigma=14, threshold=0.3, overlap=0.8):
+def detect_spots_log_bac(image, min_sigma=1, max_sigma=12, num_sigma=14, threshold=0.3, overlap=0.5):
     """Detect spots using Laplacian of Gaussian (LoG) for BAC probes."""
     blobs_raw = feature.blob_log(image, min_sigma=min_sigma, max_sigma=max_sigma,
                              num_sigma=num_sigma, threshold_rel=threshold, overlap=overlap)
