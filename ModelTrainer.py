@@ -8,6 +8,23 @@ import os
 from core.image_processing import extract_features
 from training.model_training import xgbost_train
 import glob
+import concurrent.futures
+
+def extract_features_from_file(file_path):
+    import os
+    import cv2
+    from core.image_processing import extract_features
+    filename = os.path.basename(file_path)
+    img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        print(f"Failed to read {filename}, skipping.")
+        return None
+    try:
+        features = extract_features(img)
+        return {"Image": filename, **{f"F{i+1}": v for i, v in enumerate(features)}}
+    except Exception as e:
+        print(f"Error processing {filename}: {e}")
+        return None
 
 def extract_and_save_features(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -15,14 +32,13 @@ def extract_and_save_features(input_dir, output_dir):
     image_files = []
     for ext in ("*.tif", "*.tiff", "*.ome.jpeg"):
         image_files.extend(glob.glob(os.path.join(input_dir, ext)))
-    for file_path in image_files:
-        filename = os.path.basename(file_path)
-        img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            print(f"Failed to read {filename}, skipping.")
-            continue
-        features = extract_features(img)
-        feature_records.append({"Image": filename, **{f"F{i+1}": v for i, v in enumerate(features)}})
+
+    # Use ProcessPoolExecutor for parallel feature extraction
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        results = list(executor.map(extract_features_from_file, image_files))
+
+    # Filter out failed results
+    feature_records = [r for r in results if r is not None]
     features_df = pd.DataFrame(feature_records)
     optimiser_features_csv = os.path.join(output_dir, "features.csv")
     features_df.to_csv(optimiser_features_csv, index=False)
