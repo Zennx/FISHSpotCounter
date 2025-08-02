@@ -1,3 +1,4 @@
 {
-    "python.defaultInterpreterPath": "C:\\Users\\ONG32\\micromamba\\python.exe"
+    "python.terminal.activateEnvironment": true,
+    "python.defaultInterpreterPath": "python"
 }

@@ -39,7 +39,7 @@ def extract_features(image): #all features for feature selection
 
 def extract_features_all(image): #all features for feature selection
     # Extract basic intensity features from an image
-    # for record purposes, not in use
+    # for archival and validation purposes, not in use
     mean = np.mean(image)
     std = np.std(image)
     max_val = np.max(image)
